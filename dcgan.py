@@ -1,204 +1,180 @@
-'''
-Deep Convolutional GAN (DCGAN) 
-
-- with Keras 3 API
-
-'''
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
 import keras
+import tensorflow as tf
+
+from keras import layers
+from keras import ops
+import matplotlib.pyplot as plt
+import os
 import numpy as np
 
-class Generator(keras.Model):
-    def __init__(self, image_size = 28, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.kernel_size = 5
-        self._filters = [128, 64, 32, 1]
-        self.image_size = image_size
-        self.start_image_size = image_size // 4
+batch_size = 32
 
-        self.linear = keras.layers.Dense(self.start_image_size*self.start_image_size*self._filters[0])
-        self.reshape = keras.layers.Reshape((self.start_image_size, self.start_image_size, self._filters[0]))
+# We'll use all the available examples from both the training and test
+# sets.
+(x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
+all_digits = np.concatenate([x_train, x_test])
 
-        self.activation = keras.layers.Activation('relu')
+# Scale the pixel values to [0, 1] range, add a channel dimension to
+# the images, and one-hot encode the labels.
+all_digits = all_digits.astype("float32") / 255.0
+all_digits = np.reshape(all_digits, (-1, 28, 28, 1))
 
-        self.norms = []
-        self.conv2dts = []
+# Create tf.data.Dataset.
+dataset = tf.data.Dataset.from_tensor_slices((all_digits))
+dataset = dataset.shuffle(buffer_size=1024).batch(batch_size)
 
-        strides = 2
-        for i, filters in enumerate(self._filters):
-            if i >= 2:
-                strides = 1
-            self.norms.append(keras.layers.BatchNormalization())
-            self.conv2dts.append(keras.layers.Conv2DTranspose(filters=self._filters[i],
-                                                     kernel_size=self.kernel_size,
-                                                     strides=strides,padding='same'))
+print(f"Shape of training images: {all_digits.shape}")
 
-        self.activation2 = keras.layers.Activation('sigmoid')
-
-    def call(self, inputs):
-        x = self.linear(inputs)
-        x = self.reshape(x)
-        
-        for i, _ in enumerate(self._filters):
-            x = self.norms[i](x)
-            x = self.activation(x)
-            x = self.conv2dts[i](x)
-
-        return self.activation2(x)
-    
-
-    def build_graph(self, length):
-        input = keras.Input(shape=(length, ))
-    
-        return keras.Model(inputs=input, 
-                          outputs=self.call(input))  
-
-model = Generator()
-model.build_graph(100).summary()
-
-'''
-input = keras.Input((100,))
-generator = Generator()
-ouput = generator(input)
-model = keras.Model(input, ouput)
-model.summary()
-'''
-class Discriminator(keras.Model):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.kernel_size = 5
-        self._filters = [32, 64, 128, 256]
-
-        self.flatten = keras.layers.Flatten()
-        self.linear = keras.layers.Dense(1)
-
-        self.activation = keras.layers.LeakyReLU(negative_slope=0.2)
-
-        self.conv2ds = []
-
-        strides = 2
-        for i, filters in enumerate(self._filters):
-            if i >= 3:
-                strides = 1
-            self.conv2ds.append(keras.layers.Conv2D(filters=self._filters[i],
-                                                     kernel_size=self.kernel_size,
-                                                     strides=strides,padding='same'))
-
-        self.activation2 = keras.layers.Activation('sigmoid')
-
-    def call(self, inputs):
-        x = inputs
-        for i, _ in enumerate(self._filters):
-            x = self.activation(x)
-            x = self.conv2ds[i](x)
-
-        x = self.flatten(x)
-        x = self.linear(x)
-
-        return self.activation2(x)
-
-    def build_graph(self, height, width):
-        input = keras.Input(shape=(height, width, 1))
-    
-        return keras.Model(inputs=input, 
-                          outputs=self.call(input))  
-
-model = Discriminator()
-model.build_graph(28, 28).summary()
-
-'''
-input = keras.Input((28, 28, 1))
-d = Discriminator()
-ouput = d(input)
-
-model = keras.Model(input, ouput)
-model.summary()
-'''
-
-# load the dataset
-(x_train, _), (_, _) = keras.datasets.mnist.load_data()
-# reshape and normalize
-img_height, img_width = x_train.shape[1], x_train.shape[2]
-x_train = np.reshape(x_train, (-1, img_height, img_width, 1))
-x_train = x_train.astype('float32') / 255.0
-
-
-
-# discriminator model
-discriminator = Discriminator()
-discriminator.compile(
-    optimizer=keras.optimizers.RMSprop(),
-    loss=keras.losses.BinaryCrossentropy(),
-    metrics=[
-        keras.metrics.BinaryAccuracy()
+discriminator = keras.Sequential(
+    [
+        keras.Input(shape=(28, 28, 1)),
+        layers.Conv2D(32, kernel_size=4, strides=2, padding="same"),
+        layers.LeakyReLU(negative_slope=0.2),
+        layers.Conv2D(64, kernel_size=4, strides=2, padding="same"),
+        layers.LeakyReLU(negative_slope=0.2),
+        layers.Conv2D(64, kernel_size=4, strides=2, padding="same"),
+        layers.LeakyReLU(negative_slope=0.2),
+        layers.Flatten(),
+        layers.Dropout(0.2),
+        layers.Dense(1, activation="sigmoid"),
     ],
+    name="discriminator",
 )
-discriminator.build(input_shape=(28, 28, 1))
-'''
-inputs = keras.Input((28, 28, 1))
-discriminator(inputs)
 discriminator.summary()
-'''
 
-# generator model
-generator = Generator()
-generator.compile(
-    optimizer=keras.optimizers.RMSprop(),
-    loss=keras.losses.BinaryCrossentropy(),
-    metrics=[
-        keras.metrics.BinaryAccuracy()
+latent_dim = 64
+
+generator = keras.Sequential(
+    [
+        keras.Input(shape=(latent_dim,)),
+        layers.Dense(4 * 4 * 64),
+        layers.Reshape((4, 4, 64)),
+        layers.Conv2DTranspose(32, kernel_size=4, strides=2, padding="same"),
+        layers.LeakyReLU(negative_slope=0.2),
+        layers.Conv2DTranspose(64, kernel_size=4, strides=2, padding="same"),
+        layers.LeakyReLU(negative_slope=0.2),
+        layers.Conv2DTranspose(128, kernel_size=4, strides=2, padding="same"),
+        layers.LeakyReLU(negative_slope=0.2),
+        layers.Conv2D(1, kernel_size=5, padding="valid", activation="sigmoid"),
     ],
+    name="generator",
 )
-generator.build(input_shape=(100,))
+generator.summary()
 
-# adversarial model
-#discriminator.trainable = False
-inputs = keras.Input(shape=(100,), name='z_input')
+class GAN(keras.Model):
+    def __init__(self, discriminator, generator, latent_dim):
+        super().__init__()
+        self.discriminator = discriminator
+        self.generator = generator
+        self.latent_dim = latent_dim
+        self.seed_generator = keras.random.SeedGenerator(1337)
 
-adversarial = keras.Model(inputs=inputs, outputs=discriminator(generator(inputs)), name='adversarial')
-adversarial.compile(
-    optimizer=keras.optimizers.Adam(),
-    loss=keras.losses.BinaryCrossentropy(),
-    metrics=[
-        keras.metrics.BinaryAccuracy()
-    ],
+    def compile(self, d_optimizer, g_optimizer, loss_fn):
+        super().compile()
+        self.d_optimizer = d_optimizer
+        self.g_optimizer = g_optimizer
+        self.loss_fn = loss_fn
+        self.d_loss_metric = keras.metrics.Mean(name="d_loss")
+        self.g_loss_metric = keras.metrics.Mean(name="g_loss")
+
+    @property
+    def metrics(self):
+        return [self.d_loss_metric, self.g_loss_metric]
+
+    # override train_step for customized training.
+    def train_step(self, real_images):
+        '''
+        Five Steps:
+        ==========
+        
+        1. Forward pass (within TradientTape),  retrun predictions
+        2. Calculate loss (within TradientTape), return loss
+        3. Caluclate gradient with [tape.gradient(loss, weights)], return grads
+        4. Update weights with [optimizer.apply_gradients(grads_and_vars)]
+        5. Update metrics with loss.
+        
+        '''
+        # Sample random points in the latent space
+        batch_size = ops.shape(real_images)[0]
+        random_latent_vectors = keras.random.normal(
+            shape=(batch_size, self.latent_dim), seed=self.seed_generator
+        )
+
+        # Decode them to fake images
+        generated_images = self.generator(random_latent_vectors)
+
+        # Combine them with real images
+        combined_images = ops.concatenate([generated_images, real_images], axis=0)
+
+        # Assemble labels discriminating real from fake images
+        labels = ops.concatenate(
+            [ops.ones((batch_size, 1)), ops.zeros((batch_size, 1))], axis=0
+        )
+        # Add random noise to the labels - important trick!
+        labels += 0.05 * tf.random.uniform(tf.shape(labels))
+
+        # Train the discriminator
+        with tf.GradientTape() as tape:
+            predictions = self.discriminator(combined_images)
+            d_loss = self.loss_fn(labels, predictions)
+            
+        grads = tape.gradient(d_loss, self.discriminator.trainable_weights)
+        self.d_optimizer.apply_gradients(
+            zip(grads, self.discriminator.trainable_weights)
+        )
+
+        # Sample random points in the latent space
+        random_latent_vectors = keras.random.normal(
+            shape=(batch_size, self.latent_dim), seed=self.seed_generator
+        )
+
+        # Assemble labels that say "all real images"
+        misleading_labels = ops.zeros((batch_size, 1))
+
+        # Train the generator (note that we should *not* update the weights
+        # of the discriminator)!
+        with tf.GradientTape() as tape:
+            predictions = self.discriminator(self.generator(random_latent_vectors))
+            g_loss = self.loss_fn(misleading_labels, predictions)
+            
+        grads = tape.gradient(g_loss, self.generator.trainable_weights)
+        self.g_optimizer.apply_gradients(zip(grads, self.generator.trainable_weights))
+
+        # Update metrics
+        self.d_loss_metric.update_state(d_loss)
+        self.g_loss_metric.update_state(g_loss)
+        return {
+            "d_loss": self.d_loss_metric.result(),
+            "g_loss": self.g_loss_metric.result(),
+            'acc': 0.0
+        }
+
+class GANMonitor(keras.callbacks.Callback):
+    def __init__(self, num_img=3, latent_dim=64):
+        self.num_img = num_img
+        self.latent_dim = latent_dim
+        self.seed_generator = keras.random.SeedGenerator(42)
+
+    def on_epoch_end(self, epoch, logs=None):
+        random_latent_vectors = keras.random.normal(
+            shape=(self.num_img, self.latent_dim), seed=self.seed_generator
+        )
+        generated_images = self.model.generator(random_latent_vectors)
+        generated_images *= 255
+        generated_images.numpy()
+        for i in range(self.num_img):
+            img = keras.utils.array_to_img(generated_images[i])
+            img.save("../output/generated_img_%03d_%d.png" % (epoch, i))
+            
+epochs = 2  # In practice, use ~100 epochs
+
+gan = GAN(discriminator=discriminator, generator=generator, latent_dim=latent_dim)
+gan.compile(
+    d_optimizer=keras.optimizers.Adam(learning_rate=0.0001),
+    g_optimizer=keras.optimizers.Adam(learning_rate=0.0001),
+    loss_fn=keras.losses.BinaryCrossentropy(),
 )
-#adversarial.build(input_shape=(100,))
-adversarial.summary()
 
-# network parameters
-# the latent or z vector is 100-dim
-latent_size = 100
-batch_size = 64
-train_steps = 100 #40000
-lr = 2e-4
-decay = 6e-8
-
-noise_input = np.random.uniform(-1.0, 1.0, size=[16, latent_size])
-train_size = x_train.shape[0]
-
-for i in range(train_steps):
-    rand_indexes = np.random.randint(0, train_size, size=batch_size)
-    real_images = x_train[rand_indexes]
-
-    noise = np.random.uniform(-1.0, 1.0, size=[batch_size, latent_size])
-    fake_images = generator.predict(noise)
-
-    x = np.concatenate((real_images, fake_images))
-    y = np.ones([2 * batch_size, 1])
-    y[batch_size:, :] = 0.0
-    
-    # train discriminator network
-    loss, acc = discriminator.train_on_batch(x, y)
-    log = "%d: [discriminator loss: %f, acc: %f]" % (i, loss, acc)
-    print(log)
-
-    # train the adversarial network
-    noise = np.random.uniform(-1.0, 1.0, size=[batch_size, latent_size])
-    y = np.ones([batch_size, 1])
-    print(noise.shape, y.shape)
-    #exit()
-    loss, acc = adversarial.train_on_batch(noise, y)
-    log = "%s [adversarial loss: %f, acc: %f]" % (log, loss, acc)
-    print(log)
+gan.fit(
+    dataset, epochs=epochs, callbacks=[GANMonitor(num_img=10, latent_dim=latent_dim)]
+)
