@@ -1,3 +1,10 @@
+'''
+Deep Convolutional GAN (DCGAN) 
+
+- with Keras 3 API
+
+'''
+
 import keras
 import tensorflow as tf
 
