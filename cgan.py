@@ -39,35 +39,43 @@ print(f"Shape of training images: {all_digits.shape}")
 print(f"Shape of training labels: {all_labels.shape}")
 
 # Create the discriminator.
-input_image = keras.Input(shape=(image_size, image_size, 1))
-input_label = keras.Input(shape=(num_classes,))
-x = layers.Dense(image_size*image_size)(input_label)
-x = layers.Reshape((image_size, image_size, 1))(x)
-x = ops.concatenate([input_image, x], axis=-1)
-x = layers.Conv2D(64, (3, 3), strides=(2, 2), padding="same")(x)
-x = layers.LeakyReLU(negative_slope=0.2)(x)
-x = layers.Conv2D(128, (3, 3), strides=(2, 2), padding="same")(x)
-x = layers.LeakyReLU(negative_slope=0.2)(x)
-x = layers.GlobalMaxPooling2D()(x)
-outputs = layers.Dense(1)(x)
-discriminator = keras.Model(inputs=[input_image, input_label], outputs=outputs, name="discriminator")
+def create_discriminator(image_size, num_classes):
+    input_image = keras.Input(shape=(image_size, image_size, 1))
+    input_label = keras.Input(shape=(num_classes,))
+    x = layers.Dense(image_size*image_size)(input_label)
+    x = layers.Reshape((image_size, image_size, 1))(x)
+    x = ops.concatenate([input_image, x], axis=-1)
+    x = layers.Conv2D(64, (3, 3), strides=(2, 2), padding="same")(x)
+    x = layers.LeakyReLU(negative_slope=0.2)(x)
+    x = layers.Conv2D(128, (3, 3), strides=(2, 2), padding="same")(x)
+    x = layers.LeakyReLU(negative_slope=0.2)(x)
+    x = layers.GlobalMaxPooling2D()(x)
+    outputs = layers.Dense(1)(x)
+    model = keras.Model(inputs=[input_image, input_label], outputs=outputs, name="discriminator")
+    return model
+
+discriminator = create_discriminator(image_size, num_classes)
 discriminator.summary()
 
 # Create the generator.
-input_latent = keras.Input(shape = (latent_dim, ))
-input_label = keras.Input(shape=(num_classes, ))
-x = ops.concatenate([input_latent, input_label], axis=-1)
-# We want to generate 128 + num_classes coefficients to reshape into a
-# 7x7x(128 + num_classes) map.
-x = layers.Dense(7 * 7 * generator_dim)(x)
-x = layers.LeakyReLU(negative_slope=0.2)(x)
-x = layers.Reshape((7, 7, generator_dim))(x)
-x = layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same")(x)
-x = layers.LeakyReLU(negative_slope=0.2)(x)
-x = layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same")(x)
-x = layers.LeakyReLU(negative_slope=0.2)(x)
-outputs = layers.Conv2D(1, (7, 7), padding="same", activation="sigmoid")(x)
-generator = keras.Model(inputs=[input_latent, input_label], outputs=outputs, name="generator")
+def create_generator(latent_dim, num_classes):
+    input_latent = keras.Input(shape = (latent_dim, ))
+    input_label = keras.Input(shape=(num_classes, ))
+    x = ops.concatenate([input_latent, input_label], axis=-1)
+    # We want to generate 128 + num_classes coefficients to reshape into a
+    # 7x7x(128 + num_classes) map.
+    x = layers.Dense(7 * 7 * generator_dim)(x)
+    x = layers.LeakyReLU(negative_slope=0.2)(x)
+    x = layers.Reshape((7, 7, generator_dim))(x)
+    x = layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same")(x)
+    x = layers.LeakyReLU(negative_slope=0.2)(x)
+    x = layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same")(x)
+    x = layers.LeakyReLU(negative_slope=0.2)(x)
+    outputs = layers.Conv2D(1, (7, 7), padding="same", activation="sigmoid")(x)
+    model = keras.Model(inputs=[input_latent, input_label], outputs=outputs, name="generator")
+    return model
+
+generator = create_generator(latent_dim, num_classes)
 generator.summary()
 
 class ConditionalGAN(keras.Model):

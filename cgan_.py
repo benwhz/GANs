@@ -77,7 +77,6 @@ generator = keras.Sequential(
     name="generator",
 )
 generator.summary()
-exit()
 
 class ConditionalGAN(keras.Model):
     def __init__(self, discriminator, generator, latent_dim):
@@ -194,7 +193,7 @@ cond_gan.compile(
     loss_fn=keras.losses.BinaryCrossentropy(from_logits=True),
 )
 
-cond_gan.fit(dataset, epochs=2)
+cond_gan.fit(dataset, epochs=10)
 
 # We first extract the trained generator from our Conditional GAN.
 trained_gen = cond_gan.generator
