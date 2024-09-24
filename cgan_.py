@@ -42,7 +42,7 @@ print(f"Shape of training labels: {all_labels.shape}")
 
 generator_input_dim = latent_dim + num_classes
 # add one channel for label
-discriminator_in_channels = num_channels + 1
+discriminator_in_channels = num_channels + num_classes
 
 # Create the discriminator.
 discriminator = keras.Sequential(
@@ -113,7 +113,6 @@ class ConditionalGAN(keras.Model):
         image_one_hot_labels = ops.reshape(
             image_one_hot_labels, (-1, image_size, image_size, num_classes)
         )
-        image_one_hot_labels = image_one_hot_labels[:, :, :, 0:1]
         # image_one_hot_labels shape = (-1, 28, 28, 10)
         
         # Sample random points in the latent space and concatenate the labels.
